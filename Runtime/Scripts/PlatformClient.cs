@@ -28,7 +28,7 @@ namespace Virtuademy.SDK.ApiData
     /// <para>
     /// A plain class, and that is the point. It was a <c>ScriptableObject</c> system, which put
     /// the platform's system framework in the dependency path of every application that wanted to
-    /// talk to the API. <c>ReflectisDataAccessSystem</c> is still that system, in the application
+    /// talk to the API. <c>VirtuademyDataAccessSystem</c> is still that system, in the application
     /// where it belongs, and it installs one of these at startup.
     /// </para>
     /// </remarks>
