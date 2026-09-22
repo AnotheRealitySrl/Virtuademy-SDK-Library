@@ -10,7 +10,7 @@
   "category": "Unity",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AnotheRealitySrl/Virtuademy-SDK-PlatformApi.git"
+    "url": "https://github.com/AnotheRealitySrl/Virtuademy-SDK-Library.git"
   },
   "dependencies": {
     "com.anotherealitysrl.spacs-utility": "1.0.0",
