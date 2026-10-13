@@ -130,7 +130,9 @@ disconnects it. The handlers under it — `WebSocketHandler` and `WebGLWebSocket
 **registry** around them was not. The map from address to handler, the waiting on a connection that
 is still opening and the scheme normalisation used to sit on a framework `BaseSystem`, so anything
 that wanted a socket had to resolve a system to get one. `WebSocketSystem` is now a wrapper over one
-of these, the same shape `ApiSystemBase` already has over `ApiClientBase`.
+of these, the same shape `ApiSystemBase` already has over `ApiClientBase`; it lives in the
+application (`Assets/_Project/ApiSystems/`, namespace `Virtuademy.ClientModels`), not here, so this
+package does not reference the system framework.
 
 Instances do not share connections: two clients asking for the same address get two sockets. Nothing
 currently meets that, since every caller uses an address of its own, but it is why the registry is
@@ -160,12 +162,6 @@ is safe to cache), `QuitApplication`, `ErasePlayerSessionData`, `CheckInternetCo
 
 ## Known issues / TODO
 
-- **The version has not been cut.** `package.json` is still 2.1.0 while the CHANGELOG's
-  `Unreleased` section already carries the rename, the DTO move and the contracts move.
-- **A CHANGELOG entry claims a dependency that is not declared.** It says `spacs-utility` and
-  `virtuademy-systemcore` were both added to the block; only `spacs-utility` is there. Nothing is
-  actually missing — the assembly does not reference the framework either — so the entry is stale
-  rather than the manifest being wrong.
 - **Two namespaces do not name this package.** The contracts sit in `Virtuademy.SDK.Interface` and
   the lifecycle pair in `Virtuademy.SDK.Core.ApplicationManagement`, both inherited from where they
   used to live. Renaming either touches every `using` across the project, which is why the move kept

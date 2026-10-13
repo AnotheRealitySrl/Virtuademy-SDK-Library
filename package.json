@@ -1,9 +1,9 @@
 {
   "name": "com.anotherealitysrl.virtuademy-sdk-library",
   "displayName": "Virtuademy-SDK-Library",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "unity": "2020.1",
-  "description": "The platform's HTTP client: the endpoints, and the projection from the wire types onto the platform contracts. Not installed by creators.",
+  "description": "The platform client an application uses: sign-in, the HTTP endpoints, the WebSocket transport, and the projection from the wire types onto the platform contracts. Not installed by creators.",
   "keywords": [
     "unity"
   ],
