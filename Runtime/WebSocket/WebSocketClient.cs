@@ -44,18 +44,28 @@ namespace Virtuademy.SDK.WebSocket
         public string Label { get; set; } = nameof(WebSocketClient);
 
         /// <summary>
-        /// Installs what the platform needs before the first connection. Idempotent per instance,
+        /// Installs what the platform needs before the first connection. Idempotent per process,
         /// and a no-op outside WebGL.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// The WebGL socket cannot receive on its own: the browser delivers to a callback, and the
         /// bridge needs a live GameObject to deliver it to. Everywhere else the handler owns its
         /// own loop and there is nothing to install.
+        /// </para>
+        /// <para>
+        /// The bridge is one per process, not one per client. The plugin calls back by GameObject
+        /// name, and <c>Connect</c> registers its channel on <see cref="WebSocketMessagesHandler.Instance"/>:
+        /// with two bridges (the application's <c>WebSocketSystem</c> and the realtime client each
+        /// own a client) the open callback could reach the copy that never saw the channel, throw
+        /// <c>KeyNotFoundException</c>, and leave <c>Connect</c> waiting forever — every AI chatbot
+        /// on WebGL hung that way while the server had accepted the socket.
+        /// </para>
         /// </remarks>
         public void Initialize()
         {
 #if UNITY_WEBGL && !UNITY_EDITOR
-            if (initialized)
+            if (WebSocketMessagesHandler.Instance != null)
             {
                 return;
             }
@@ -63,13 +73,8 @@ namespace Virtuademy.SDK.WebSocket
             GameObject webGLWebSocketHandler = new GameObject(nameof(WebSocketMessagesHandler));
             webGLWebSocketHandler.AddComponent<WebSocketMessagesHandler>();
             UnityEngine.Object.DontDestroyOnLoad(webGLWebSocketHandler);
-            initialized = true;
 #endif
         }
-
-#if UNITY_WEBGL && !UNITY_EDITOR
-        private bool initialized;
-#endif
 
         /// <summary>
         /// Connects to <paramref name="url"/>, or reports that it could not. Add any listener

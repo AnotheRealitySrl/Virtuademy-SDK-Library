@@ -16,8 +16,15 @@ public class WebGLWebSocketHandler : IWebSocketHandler
     public async Task ConnectAsync(string url)
     {
         ConnectionState = IWebSocketHandler.EWebSocketState.Connecting;
-        await WebSocketMessagesHandler.Instance.Connect(url, this);
-        ConnectionState = IWebSocketHandler.EWebSocketState.Open;
+        bool opened = await WebSocketMessagesHandler.Instance.Connect(url, this);
+
+        // A failed open ends Closed, as WebSocketHandler does on the other platforms, so the
+        // address can be connected again. An open the server closed right away is Closed too:
+        // the close handler already set it, and setting Open here would undo that.
+        if (!opened)
+        {
+            ConnectionState = IWebSocketHandler.EWebSocketState.Closed;
+        }
     }
 
 

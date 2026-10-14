@@ -154,6 +154,18 @@
   `virtuademy-systemcore`: that was declared for a while and removed once the assembly stopped
   referencing it, because UPM refused to resolve the package set of an external app that did not
   install a framework package it should not have to.
+- **WebGL: a socket opened by `WebSocketSystem` never finished connecting**, so every AI chatbot
+  opened its panel and then neither started the conversation nor answered. Each
+  `WebSocketClient` created its own `WebSocketMessagesHandler` bridge, and since
+  `RealtimeApiClient` owns a client of its own there were two GameObjects with the same name. The
+  plugin calls back by name, so the open callback reached the bridge that had not registered the
+  channel: `KeyNotFoundException` in `SocketOpenEventHandler`, then `Channel N not found!` for
+  every message the server sent. `Initialize()` now creates the bridge once per process. Fixed
+  after the tag, on 2026-10-14; the `v3.0.0` tag and `main` were moved to include it.
+- **WebGL: a socket that fails before opening no longer hangs `ConnectAsync`.** An error or close
+  reported before the open used to leave the channel waiting forever (and threw in
+  `SocketErrorEventHandler`); it now ends the connect with the handler `Closed`, as on the other
+  platforms. Same commit as the line above.
 
 ## v2.1.0
 

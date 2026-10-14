@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
 using UnityEngine;
-
+
 
 public class WebSocketMessagesHandler : Singleton<WebSocketMessagesHandler>
 {
@@ -42,7 +42,14 @@ public class WebSocketMessagesHandler : Singleton<WebSocketMessagesHandler>
         WebSocketInit(WEB_SOCKET_HANDLER_OBJ_NAME);
     }
 
-    public async Task Connect(string url, WebGLWebSocketHandler handler)
+    /// <summary>
+    /// Opens a socket and waits for the browser to report how that went.
+    /// </summary>
+    /// <returns>
+    /// True when the socket opened. False when the browser reported an error or a close first:
+    /// the channel then leaves <c>openingChannels</c> without reaching <c>handlers</c>.
+    /// </returns>
+    public async Task<bool> Connect(string url, WebGLWebSocketHandler handler)
     {
         int channel = WebSocketOpen(url);
 
@@ -50,26 +57,50 @@ public class WebSocketMessagesHandler : Singleton<WebSocketMessagesHandler>
 
         while (openingChannels.ContainsKey(channel))
         {
-            string channels = "";
-            foreach (var item in openingChannels)
-            {
-                channels += item.Key + ", ";
-            }
             await Task.Yield();
         }
+
+        return handlers.ContainsKey(channel);
     }
 
     public void SocketOpenEventHandler(int channelId)
     {
         Debug.Log($"{nameof(SocketOpenEventHandler)}: open channel {channelId}");
-        handlers.TryAdd(channelId, openingChannels[channelId]);
-        openingChannels[channelId].ConnectionState = IWebSocketHandler.EWebSocketState.Open;
+        if (!openingChannels.TryGetValue(channelId, out WebGLWebSocketHandler handler))
+        {
+            Debug.LogError($"{nameof(SocketOpenEventHandler)}: channel {channelId} is not being opened by this bridge.");
+            return;
+        }
+
+        handlers.TryAdd(channelId, handler);
+        handler.ConnectionState = IWebSocketHandler.EWebSocketState.Open;
         openingChannels.Remove(channelId);
+    }
+
+    /// <summary>
+    /// Ends a pending <see cref="Connect"/> as failed, when the browser reports an error or a
+    /// close before the open. Without it the channel stayed in <c>openingChannels</c> and the
+    /// connect waited forever.
+    /// </summary>
+    private bool FailOpeningChannel(int channelId, string reason)
+    {
+        if (!openingChannels.Remove(channelId))
+        {
+            return false;
+        }
+
+        Debug.LogError($"WebSocket channel {channelId} failed to open: {reason}");
+        return true;
     }
 
     public void SocketCloseEventHandler(int channelId)
     {
         Debug.Log($"{nameof(SocketCloseEventHandler)}: received message");
+        if (FailOpeningChannel(channelId, "closed before opening"))
+        {
+            return;
+        }
+
         if (closingChannels.Contains(channelId))
         {
             closingChannels.Remove(channelId);
@@ -150,7 +181,15 @@ public class WebSocketMessagesHandler : Singleton<WebSocketMessagesHandler>
     public void SocketErrorEventHandler(int channel)
     {
         Debug.Log($"{nameof(SocketErrorEventHandler)}: received message");
-        handlers[channel].OnSocketError();
+        if (FailOpeningChannel(channel, "error before opening"))
+        {
+            return;
+        }
+
+        if (handlers.TryGetValue(channel, out WebGLWebSocketHandler handler))
+        {
+            handler.OnSocketError();
+        }
     }
 
     public void SendMessage(WebGLWebSocketHandler handler, string message)
