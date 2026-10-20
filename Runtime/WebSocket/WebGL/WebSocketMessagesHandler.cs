@@ -35,6 +35,12 @@ public class WebSocketMessagesHandler : Singleton<WebSocketMessagesHandler>
 
     private List<int> closingChannels = new List<int>();
 
+    /// <summary>
+    /// Logs every message as it arrives. Off by default: a busy socket logged a line per message,
+    /// and on WebGL every Debug.Log is a call into the browser console.
+    /// </summary>
+    public bool LogMessages { get; set; }
+
     protected override void Awake()
     {
         base.Awake();
@@ -121,7 +127,10 @@ public class WebSocketMessagesHandler : Singleton<WebSocketMessagesHandler>
 
     public async void SocketMessageEventHandler(string channelAndMessage)
     {
-        Debug.Log($"{nameof(SocketMessageEventHandler)}: received message");
+        if (LogMessages)
+        {
+            Debug.Log($"{nameof(SocketMessageEventHandler)}: received message");
+        }
 
         var (channel, message) = await ParseChannelAndMessage(channelAndMessage);
         if (channel != -1)
@@ -131,7 +140,10 @@ public class WebSocketMessagesHandler : Singleton<WebSocketMessagesHandler>
     }
     public async void SocketBinaryMessageEventHandler(string channelAndMessage)
     {
-        Debug.Log($"{nameof(SocketBinaryMessageEventHandler)}: received message");
+        if (LogMessages)
+        {
+            Debug.Log($"{nameof(SocketBinaryMessageEventHandler)}: received message");
+        }
 
         var (channel, message) = await ParseChannelAndMessage(channelAndMessage);
         if (channel != -1)

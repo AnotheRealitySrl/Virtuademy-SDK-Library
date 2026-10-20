@@ -104,14 +104,24 @@ namespace Virtuademy.SDK.WebSocket
             try
             {
                 await webSocketHandler.ConnectAsync(GetCompleteUrl(url, queryParams));
-
-                return true;
             }
             catch (Exception e)
             {
                 onWebSocketOpenError?.Invoke(e.Message);
                 return false;
             }
+
+            // The state, not the absence of an exception, says whether the socket opened: the
+            // WebGL handler reports a refused open by ending Closed rather than by throwing. This
+            // returned true for every attempt until 2026-10, so a caller waiting for the server's
+            // first message after a failed open waited forever.
+            if (webSocketHandler.ConnectionState != IWebSocketHandler.EWebSocketState.Open)
+            {
+                onWebSocketOpenError?.Invoke($"The connection to {url} did not open.");
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>

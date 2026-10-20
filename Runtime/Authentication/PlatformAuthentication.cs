@@ -184,6 +184,9 @@ namespace Virtuademy.SDK.ApiData
             }
 
             profile.Session = null;
+            // The clients cache the token they took; clearing the set tells them to drop it, so
+            // the next user to sign in does not inherit this one's tokens.
+            profile.ClearTokens();
             SetAuthenticated(false);
         }
 
