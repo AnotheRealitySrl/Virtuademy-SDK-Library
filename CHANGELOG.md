@@ -18,6 +18,12 @@ Minor bump: behaviour fixes, plus two additive members (`WebSocketHandler.Connec
   (native and WebGL) now notify a snapshot of the listeners and isolate each call.
 - The receive buffer grew by 1000 bytes per step, copying the whole message again for every
   kilobyte; it now doubles.
+- **One NPC saved with `clipMap: []` emptied the whole NPC list.** The Application API returns the
+  stored value as it is, and `NpcDTO.clipMap`, a plain `Dictionary`, rejected an array with a
+  `JsonSerializationException` thrown from the response constructor, so `GetNpcs` failed for every
+  NPC of the world and that NPC's details request too. The field is now read leniently: an object
+  is the map, anything else means no map, which `ResolveClip` already handles. Not a regression of
+  this release: the same payload failed with the earlier settings.
 - The connection log printed the full URL, query included: the realtime socket carries the user's
   JWT there (`?token=`). The query is redacted.
 
