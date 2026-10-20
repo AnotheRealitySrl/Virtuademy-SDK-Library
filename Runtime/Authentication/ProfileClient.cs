@@ -1,5 +1,6 @@
 using SPACS.Utilities;
 
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -34,9 +35,14 @@ namespace Virtuademy.SDK.ApiData
     /// be: it is the subset an external host needs, with no framework under it.
     /// </para>
     /// </remarks>
-    public class ProfileClient : ApiClientBase, ITokenProvider
+    public class ProfileClient : ApiClientBase, ITokenProvider, ITokenProviderNotifications
     {
         private readonly Dictionary<string, JwtToken> tokens = new();
+
+        private Task tokensInFlight;
+
+        /// <inheritdoc />
+        public event Action TokensChanged;
 
         /// <summary>The session in hand, or null before one is begun.</summary>
         public PlatformSession Session { get; set; }
@@ -178,17 +184,49 @@ namespace Virtuademy.SDK.ApiData
                    + "reach that API.");
 
         /// <inheritdoc />
-        public async Task GetTokens()
+        /// <remarks>
+        /// Callers that ask while a fetch is running share it: every client that finds its token
+        /// expired at the same moment asks, and they used to fetch the whole set once each.
+        /// </remarks>
+        public Task GetTokens()
         {
-            if (string.IsNullOrEmpty(Session?.Hash))
+            if (tokensInFlight == null || tokensInFlight.IsCompleted)
+            {
+                tokensInFlight = FetchTokens();
+            }
+
+            return tokensInFlight;
+        }
+
+        /// <summary>
+        /// Forgets the token set and tells the clients that took tokens from it, so none goes on
+        /// signing with a token of a session that has ended.
+        /// </summary>
+        public void ClearTokens()
+        {
+            tokens.Clear();
+            TokensChanged?.Invoke();
+        }
+
+        private async Task FetchTokens()
+        {
+            string sessionHash = Session?.Hash;
+            if (string.IsNullOrEmpty(sessionHash))
             {
                 return;
             }
 
             using UnityWebRequest request = await BuildRequest(
                 UnityWebRequest.kHttpVerbGET, "my/tokens",
-                additionalHeaders: Header(Session.Hash), authentication: EAuthentication.Hmac);
+                additionalHeaders: Header(sessionHash), authentication: EAuthentication.Hmac);
             await request.SendWebRequest();
+
+            // A sign-out (or another sign-in) while the request was out: these tokens belong to a
+            // session that is no longer the one in hand.
+            if (Session?.Hash != sessionHash)
+            {
+                return;
+            }
 
             ApiResponseArray<JwtToken> response = new(request.responseCode, request.error,
                                                       request.downloadHandler.text);
@@ -202,6 +240,8 @@ namespace Virtuademy.SDK.ApiData
             {
                 tokens[token.ApiLabel] = token;
             }
+
+            TokensChanged?.Invoke();
         }
 
         private static Dictionary<string, string> Header(string sessionHash)

@@ -17,6 +17,22 @@ public class WebSocketHandler : IWebSocketHandler, IDisposable
     public List<IWebSocketListener> Listeners => listeners;
     public IWebSocketHandler.EWebSocketState ConnectionState { get; private set; }
 
+    /// <summary>
+    /// How long the opening handshake may take before the attempt is abandoned. Without one, an
+    /// unreachable host left the attempt to the OS TCP timeout, which can run for minutes.
+    /// </summary>
+    public TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// Opens the socket, or throws. A failed attempt leaves the handler Closed with its resources
+    /// released, and the exception reaches the caller.
+    /// </summary>
+    /// <remarks>
+    /// This used to log and swallow every failure, so the caller could not tell a refused
+    /// connection from an open one: <see cref="Virtuademy.SDK.WebSocket.WebSocketClient"/> reported
+    /// success, and whatever waited for the server's first message (the realtime handshake) waited
+    /// forever.
+    /// </remarks>
     public virtual async Task ConnectAsync(string url)
     {
         // If there's an existing connection, disconnect it first
@@ -30,35 +46,59 @@ public class WebSocketHandler : IWebSocketHandler, IDisposable
         connectCts = new CancellationTokenSource(); // Initialize a new CancellationTokenSource for each connection
 
         ConnectionState = IWebSocketHandler.EWebSocketState.Connecting;
-        Debug.Log($"Attempting to connect to: {url}");
+        Debug.Log($"Attempting to connect to: {WithoutQuery(url)}");
+
+        // The timeout applies to the opening only: connectCts also drives the receive loop.
+        using CancellationTokenSource openCts = CancellationTokenSource.CreateLinkedTokenSource(connectCts.Token);
+        openCts.CancelAfter(ConnectTimeout);
 
         try
         {
-            await webSocket.ConnectAsync(new Uri(url), connectCts.Token);
+            await webSocket.ConnectAsync(new Uri(url), openCts.Token);
             ConnectionState = IWebSocketHandler.EWebSocketState.Open;
             Debug.Log("WebSocket connection opened.");
 
             // Start the receive routine in the background
             _ = ReceiveMessagesRoutine(); // Use '_' to suppress "await not used" warning
         }
+        catch (OperationCanceledException) when (connectCts?.IsCancellationRequested != true)
+        {
+            Debug.LogError($"WebSocket connection timed out after {ConnectTimeout.TotalSeconds:0} s.");
+            ConnectionState = IWebSocketHandler.EWebSocketState.Closed;
+            Dispose();
+            throw new TimeoutException($"The WebSocket connection did not open within {ConnectTimeout.TotalSeconds:0} s.");
+        }
         catch (OperationCanceledException)
         {
             Debug.Log("Connection attempt cancelled.");
             ConnectionState = IWebSocketHandler.EWebSocketState.Closed;
             Dispose(); // Ensure resources are released
+            throw;
         }
         catch (WebSocketException wse)
         {
             Debug.LogError($"WebSocket error during connection: {wse.Message}");
             ConnectionState = IWebSocketHandler.EWebSocketState.Closed;
             Dispose();
+            throw;
         }
         catch (Exception ex)
         {
             Debug.LogError($"Generic error during connection: {ex.Message}");
             ConnectionState = IWebSocketHandler.EWebSocketState.Closed;
             Dispose();
+            throw;
         }
+    }
+
+    /// <summary>
+    /// The address without its query string, for the log: the realtime socket carries the user's
+    /// JWT there (<c>?token=…</c>).
+    /// </summary>
+    private static string WithoutQuery(string url)
+    {
+        int query = url?.IndexOf('?') ?? -1;
+        return query < 0 ? url : url.Substring(0, query) + "?<redacted>";
     }
 
     public virtual async Task SendMessage(string message)
@@ -230,13 +270,14 @@ public class WebSocketHandler : IWebSocketHandler, IDisposable
 
                     if (free == 0)
                     {
-                        // Resize buffer if necessary
-                        var newSize = buffer.Length + bufferSize;
+                        // Resize buffer if necessary. Doubling, not +1000: a growth step of a
+                        // fixed size copied the whole message again for every kilobyte of it.
+                        var newSize = (long)buffer.Length * 2;
                         if (newSize > 2E+09) // 2GB limit
                         {
                             throw new Exception("Maximum buffer size exceeded");
                         }
-                        var newBuffer = new byte[newSize];
+                        var newBuffer = new byte[(int)newSize];
                         Array.Copy(buffer, 0, newBuffer, 0, offset);
                         buffer = newBuffer;
                         free = buffer.Length - offset;
@@ -259,10 +300,7 @@ public class WebSocketHandler : IWebSocketHandler, IDisposable
                             Debug.Log("Binary message received.");
                             var partialBytes = new byte[offset];
                             Array.Copy(buffer, partialBytes, offset);
-                            foreach (var listener in listeners)
-                            {
-                                listener?.OnWebSocketBinaryMessageReceived(partialBytes);
-                            }
+                            NotifyListeners(listener => listener.OnWebSocketBinaryMessageReceived(partialBytes));
                             break;
                         case WebSocketMessageType.Close:
                             Debug.Log($"Close message received from server. Status: {result.CloseStatus}, Description: {result.CloseStatusDescription}");
@@ -293,10 +331,7 @@ public class WebSocketHandler : IWebSocketHandler, IDisposable
                             break;
                         case WebSocketMessageType.Text:
                             var message = Encoding.UTF8.GetString(buffer, 0, offset); // Use offset for correct length
-                            foreach (var listener in listeners)
-                            {
-                                listener?.OnWebSocketMessageReceived(message);
-                            }
+                            NotifyListeners(listener => listener.OnWebSocketMessageReceived(message));
                             break;
                     }
                 }
@@ -317,6 +352,37 @@ public class WebSocketHandler : IWebSocketHandler, IDisposable
         }
     }
 
+    /// <summary>
+    /// Calls every listener over a snapshot of the list, isolating each one.
+    /// </summary>
+    /// <remarks>
+    /// A listener may add or remove listeners while it runs (a close handler that reconnects,
+    /// a message handler that unsubscribes), which threw out of a <c>foreach</c> over the live
+    /// list. And a listener that threw used to escape into the receive loop, whose catch-all then
+    /// closed the socket for everybody and cleared every listener.
+    /// </remarks>
+    private void NotifyListeners(Action<IWebSocketListener> notify) => NotifyListeners(listeners.ToArray(), notify);
+
+    private static void NotifyListeners(IWebSocketListener[] targets, Action<IWebSocketListener> notify)
+    {
+        foreach (IWebSocketListener listener in targets)
+        {
+            if (listener == null)
+            {
+                continue;
+            }
+
+            try
+            {
+                notify(listener);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+    }
+
     private void HandleDisconnection(string reason)
     {
         Debug.Log($"Handling disconnection: {reason}");
@@ -325,12 +391,11 @@ public class WebSocketHandler : IWebSocketHandler, IDisposable
         {
             ConnectionState = IWebSocketHandler.EWebSocketState.Closed;
 
-            // Notify listeners of the closure
-            foreach (var listener in listeners)
-            {
-                listener?.OnWebSocketClose();
-            }
+            // Notify listeners of the closure. The list is emptied first, so a listener that
+            // registers again from its close handler (to reconnect) keeps its new registration.
+            IWebSocketListener[] closing = listeners.ToArray();
             listeners.Clear();
+            NotifyListeners(closing, listener => listener.OnWebSocketClose());
 
             // Cancel any pending operations
             connectCts?.Cancel();

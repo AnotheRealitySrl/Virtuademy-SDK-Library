@@ -1,5 +1,43 @@
 # Release notes
 
+## Unreleased
+
+Minor bump: behaviour fixes, plus two additive members (`WebSocketHandler.ConnectTimeout`,
+`WebSocketMessagesHandler.LogMessages`).
+
+### Fixed
+- **A WebSocket that failed to open reported success.** `WebSocketHandler.ConnectAsync` logged and
+  swallowed every failure, and `WebSocketClient.ConnectAsync` returned true whatever happened, so
+  `onWebSocketOpenError` never fired and a caller waiting for the server's first message (the
+  realtime handshake) waited forever: with the server unreachable, the boot spinner never ended.
+  The handler now rethrows after releasing the socket, and the client answers from the handler's
+  state, which also covers the WebGL handler (it reports a refused open by ending Closed).
+- **One listener could close the socket for everybody.** A listener that threw while handling a
+  message escaped into the receive loop, whose catch-all closed the socket and cleared every
+  listener; a listener that unsubscribed during dispatch threw out of the `foreach`. Both handlers
+  (native and WebGL) now notify a snapshot of the listeners and isolate each call.
+- The receive buffer grew by 1000 bytes per step, copying the whole message again for every
+  kilobyte; it now doubles.
+- **One NPC saved with `clipMap: []` emptied the whole NPC list.** The Application API returns the
+  stored value as it is, and `NpcDTO.clipMap`, a plain `Dictionary`, rejected an array with a
+  `JsonSerializationException` thrown from the response constructor, so `GetNpcs` failed for every
+  NPC of the world and that NPC's details request too. The field is now read leniently: an object
+  is the map, anything else means no map, which `ResolveClip` already handles. Not a regression of
+  this release: the same payload failed with the earlier settings.
+- The connection log printed the full URL, query included: the realtime socket carries the user's
+  JWT there (`?token=`). The query is redacted.
+
+### Added
+- `WebSocketHandler.ConnectTimeout` (default 15 s): the opening handshake had no timeout, so an
+  unreachable host waited for the OS TCP timeout.
+- `WebSocketMessagesHandler.LogMessages` (off by default): the WebGL bridge logged a line per
+  received message.
+- `ProfileClient` implements `ITokenProviderNotifications` (from `Virtuademy-SDK-Core`), and has
+  `ClearTokens()`. `PlatformAuthentication.Logout` clears the tokens, so the clients that took one
+  drop it: after a sign-out they had gone on signing as the previous user until the token expired.
+  Concurrent `GetTokens` calls share one fetch, and a fetch that returns after the session changed
+  is discarded. Needs the matching `Virtuademy-SDK-Core`.
+
 ## v3.0.0
 
 ### Added

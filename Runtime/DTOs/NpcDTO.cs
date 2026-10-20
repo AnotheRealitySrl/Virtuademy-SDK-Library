@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 using UnityEngine;
 
@@ -24,7 +25,10 @@ namespace Virtuademy.SDK.ApiData
         [SerializeField] private string description;
         // Canonical animation state (Idle/Thinking/Talk) -> GLB clip name.
         // May be null or partial; fallbacks are the client's job (see ResolveClip).
-        [SerializeField] private Dictionary<string, string> clipMap;
+        // Read leniently: the server passes the stored JSON through as it is, and an NPC saved
+        // with an empty array ([]) made the whole NPC list fail to deserialize.
+        [SerializeField, JsonConverter(typeof(LenientClipMapConverter))]
+        private Dictionary<string, string> clipMap;
         // Slim pose correction; null when the NPC has no correction (apply identity).
         [SerializeField] private NpcTransformDTO transform;
         [SerializeField] private DateTime lastModified;
@@ -63,6 +67,46 @@ namespace Virtuademy.SDK.ApiData
             if (state == "Thinking" && clipMap.TryGetValue("Idle", out string idle) && !string.IsNullOrEmpty(idle))
                 return idle;
             return null;
+        }
+
+        /// <summary>
+        /// Reads <c>clipMap</c> from whatever the server sent: a JSON object becomes the map,
+        /// anything else (an empty array, null, a scalar) means "no map", which
+        /// <see cref="ResolveClip"/> already handles.
+        /// </summary>
+        /// <remarks>
+        /// The Application API returns the stored value verbatim (<c>JsonElement</c>), so the
+        /// shape is whatever was saved. A plain <c>Dictionary</c> field rejected an array with a
+        /// <c>JsonSerializationException</c>, thrown from the response constructor: one such
+        /// NPC emptied the whole list and its own details request failed too.
+        /// </remarks>
+        [UnityEngine.Scripting.Preserve]
+        internal sealed class LenientClipMapConverter : JsonConverter<Dictionary<string, string>>
+        {
+            [UnityEngine.Scripting.Preserve]
+            public LenientClipMapConverter() { }
+
+            public override Dictionary<string, string> ReadJson(JsonReader reader, Type objectType,
+                                                                Dictionary<string, string> existingValue,
+                                                                bool hasExistingValue, JsonSerializer serializer)
+            {
+                JToken token = JToken.Load(reader);
+                if (token is not JObject map)
+                {
+                    return null;
+                }
+
+                Dictionary<string, string> clips = new();
+                foreach (JProperty clip in map.Properties())
+                {
+                    clips[clip.Name] = clip.Value.Type == JTokenType.Null ? null : clip.Value.ToString();
+                }
+
+                return clips;
+            }
+
+            public override void WriteJson(JsonWriter writer, Dictionary<string, string> value, JsonSerializer serializer)
+                => serializer.Serialize(writer, value, typeof(Dictionary<string, string>));
         }
     }
 

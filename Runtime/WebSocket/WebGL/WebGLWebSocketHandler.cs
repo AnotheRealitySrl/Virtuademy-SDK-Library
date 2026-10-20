@@ -1,6 +1,7 @@
 #if UNITY_WEBGL && !UNITY_EDITOR
 using Virtuademy.SDK.WebSocket;
 
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -42,12 +43,10 @@ public class WebGLWebSocketHandler : IWebSocketHandler
 
     public void OnSocketClose()
     {
-        foreach (IWebSocketListener listener in listeners)
-        {
-            listener.OnWebSocketClose();
-        }
+        IWebSocketListener[] closing = listeners.ToArray();
         listeners.Clear();
         ConnectionState = IWebSocketHandler.EWebSocketState.Closed;
+        NotifyListeners(closing, listener => listener.OnWebSocketClose());
     }
 
     public async Task Disconnect()
@@ -64,33 +63,40 @@ public class WebGLWebSocketHandler : IWebSocketHandler
 
     internal void OnMessageReceived(string message)
     {
-        foreach (IWebSocketListener listener in listeners)
-        {
-            if (listener != null)
-            {
-                listener.OnWebSocketMessageReceived(message);
-            }
-        }
+        NotifyListeners(listeners.ToArray(), listener => listener.OnWebSocketMessageReceived(message));
     }
 
     internal void OnBinaryMessageReceived(byte[] buffer)
     {
-        foreach (IWebSocketListener listener in listeners)
-        {
-            if (listener != null)
-            {
-                listener.OnWebSocketBinaryMessageReceived(buffer);
-            }
-        }
+        NotifyListeners(listeners.ToArray(), listener => listener.OnWebSocketBinaryMessageReceived(buffer));
     }
 
     internal void OnSocketError()
     {
-        foreach (IWebSocketListener listener in listeners)
+        NotifyListeners(listeners.ToArray(), listener => listener.OnWebSocketError("WebGl socket error."));
+    }
+
+    /// <summary>
+    /// Calls every listener over a snapshot, isolating each one: a listener that unsubscribes
+    /// while it runs no longer breaks the iteration, and one that throws no longer stops the
+    /// others from hearing the message.
+    /// </summary>
+    private static void NotifyListeners(IWebSocketListener[] targets, Action<IWebSocketListener> notify)
+    {
+        foreach (IWebSocketListener listener in targets)
         {
-            if (listener != null)
+            if (listener == null)
             {
-                listener.OnWebSocketError("WebGl socket error.");
+                continue;
+            }
+
+            try
+            {
+                notify(listener);
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogException(ex);
             }
         }
     }
