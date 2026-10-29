@@ -24,6 +24,7 @@ namespace Virtuademy.SDK.ApiData
         [SerializeField] private string[] platforms;
         [SerializeField] private TagDTO[] tags = new TagDTO[0];
         [SerializeField] private bool multiplayer;
+        [SerializeField] private string format;
 
         public int Id => id;
         public DateTime CreationDate => creationDate;
@@ -40,6 +41,13 @@ namespace Virtuademy.SDK.ApiData
         public string ThumbnailUri => thumbnailUri;
         public string LocalizationUri => localizationUri;
         public TagDTO[] Tags => tags;
+        [Obsolete("Use SessionDTO.Multiplayer for a session, WorldDTO.Multiplayer for a world.")]
         public bool Multiplayer { get => multiplayer; set => multiplayer = value; }
+        /// <summary>
+        /// What the environment is made of, as the Application API sends it (<c>UnityAddressable</c>, ...).
+        /// A string on purpose, so a value this client does not know survives to be reported; null when
+        /// the API does not send the field.
+        /// </summary>
+        public string Format => format;
     }
 }

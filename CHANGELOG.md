@@ -37,6 +37,12 @@ Minor bump: behaviour fixes, plus two additive members (`WebSocketHandler.Connec
   drop it: after a sign-out they had gone on signing as the previous user until the token expired.
   Concurrent `GetTokens` calls share one fetch, and a fetch that returns after the session changed
   is discarded. Needs the matching `Virtuademy-SDK-Core`.
+- `EnvironmentDTO.Format` (wire key `format`): the environment's format as the Application API sends it,
+  a string so that a value this client does not know is kept, null when the API does not send it.
+
+### Deprecated
+- `EnvironmentDTO.Multiplayer` is obsolete: use `SessionDTO.Multiplayer` for a session,
+  `WorldDTO.Multiplayer` for a world. Code that reads it still compiles, with a warning.
 
 ## v3.0.0
 
